@@ -52,6 +52,142 @@ smart-space-lighting-system/
 - `linux/kernel-module/presence_km/`: PIR presence detection kernel module
 - `linux/daemon/`: user-space daemon for sensor monitoring and state control
 
+## ▶️ How to Run (v1)
+
+This version is designed to run on Raspberry Pi 4 and Pico W.  
+The main goal is to validate the UART-based control pipeline between Linux user space, Linux kernel modules, and embedded firmware.
+
+
+
+### 1. Build and flash Pico W firmware
+
+The Pico W firmware is located in:
+
+```text
+firmware/pico/
+```
+
+Build the firmware with the Pico SDK:
+
+```bash
+cd firmware/pico
+mkdir build
+cd build
+cmake ..
+make
+```
+
+After building, flash the generated `.uf2` file to Pico W.
+
+
+
+### 2. Build Linux kernel modules
+
+The Linux kernel modules are located in:
+
+```text
+linux/kernel-module/
+```
+
+Build and insert the UART hub kernel module:
+
+```bash
+cd linux/kernel-module/uart_hub_km
+make
+sudo insmod uart_hub.ko
+```
+
+Build and insert the presence detection kernel module:
+
+```bash
+cd ../presence_km
+make
+sudo insmod presence.ko
+```
+
+Check whether the device nodes are created:
+
+```bash
+ls /dev/light_sensor
+ls /dev/lighting
+ls /dev/presence
+```
+
+
+
+### 3. Build user-space daemon
+
+The daemon is located in:
+
+```text
+linux/daemon/
+```
+
+Build it with GCC:
+
+```bash
+cd linux/daemon
+gcc -o lighting_daemon lighting_daemon.c
+```
+
+
+
+### 4. Run daemon
+
+Run the daemon with root permission:
+
+```bash
+sudo ./lighting_daemon
+```
+
+The daemon monitors sensor data and sends state commands to Pico W through `/dev/lighting`.
+
+
+
+### 5. Test manual lighting control
+
+You can manually send commands to the lighting device node:
+
+```bash
+echo "STATE:ACTIVE" | sudo tee /dev/lighting
+echo "STATE:IDLE" | sudo tee /dev/lighting
+echo "STATE:SLEEP" | sudo tee /dev/lighting
+```
+
+---
+
+### 6. Read sensor data
+
+Read ambient light data:
+
+```bash
+cat /dev/light_sensor
+```
+
+Read presence status:
+
+```bash
+cat /dev/presence
+```
+
+Expected output examples:
+
+```text
+LUX:120.5
+```
+
+```text
+1
+```
+
+
+
+### Notes
+
+- `/dev/light_sensor` provides LUX data received from Pico W through UART.
+- `/dev/lighting` is used to send lighting state commands back to Pico W.
+- `/dev/presence` provides PIR sensor status from the Raspberry Pi GPIO.
+- This v1 version focuses on terminal-based control and system pipeline validation.
 ---
 
 ## 中文說明
