@@ -20,6 +20,34 @@ The initial version focuses on building a minimal control pipeline between Raspb
 - UART
 - Linux device file interface
 
+## 📁 Project Structure
+
+```text
+smart-space-lighting-system/
+├── firmware/
+│   └── pico/
+│       ├── CMakeLists.txt
+│       ├── main.c
+│       └── ws2812.pio
+│
+├── linux/
+│   ├── daemon/
+│   │   └── lighting_daemon.c
+│   │
+│   └── kernel-module/
+│       ├── uart_hub_km/
+│       │   ├── Makefile
+│       │   └── uart_hub.c
+│       │
+│       └── presence_km/
+│           ├── Makefile
+│           └── presence.c
+│
+├── .gitignore
+├── .gitattributes
+└── README.md
+```
+
 ---
 
 # 智慧空間燈光系統
