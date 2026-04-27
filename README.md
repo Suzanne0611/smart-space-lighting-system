@@ -47,10 +47,14 @@ smart-space-lighting-system/
 ├── .gitattributes
 └── README.md
 ```
+- `firmware/pico/`: Pico W firmware for UART command parsing and WS2812 LED control
+- `linux/kernel-module/uart_hub_km/`: UART kernel module exposing `/dev/light_sensor` and `/dev/lighting`
+- `linux/kernel-module/presence_km/`: PIR presence detection kernel module
+- `linux/daemon/`: user-space daemon for sensor monitoring and state control
 
 ---
 
-# 智慧空間燈光系統
+## 中文說明
 
 本專案為共享智慧空間原型中的智慧燈光子系統。  
 初始版本著重於建立 Raspberry Pi 4 與 Pico W 之間的最小控制流程，透過 UART 與 Linux 裝置檔完成燈光控制與感測資料傳遞。
