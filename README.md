@@ -188,6 +188,7 @@ LUX:120.5
 - `/dev/lighting` is used to send lighting state commands back to Pico W.
 - `/dev/presence` provides PIR sensor status from the Raspberry Pi GPIO.
 - This v1 version focuses on terminal-based control and system pipeline validation.
+
 ---
 
 ## 中文說明
