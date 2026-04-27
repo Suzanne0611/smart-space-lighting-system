@@ -1,0 +1,9 @@
+build/
+.vscode/
+generated/
+*.uf2
+*.bin
+*.elf
+*.hex
+*.dis
+*.map

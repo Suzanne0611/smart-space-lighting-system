@@ -1,0 +1,17 @@
+# build
+build/
+
+# vscode
+.vscode/
+
+# linux kernel build
+*.o
+*.ko
+*.mod
+*.mod.c
+*.cmd
+Module.symvers
+modules.order
+
+# misc
+.DS_Store
