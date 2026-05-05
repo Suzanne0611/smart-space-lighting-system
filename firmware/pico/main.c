@@ -6,62 +6,143 @@
 #include "pico/cyw43_arch.h"
 #include "hardware/pio.h"
 #include "hardware/clocks.h"
-#include "hardware/uart.h"
+#include "hardware/i2c.h"
 #include "ws2812.pio.h"
+#include "FreeRTOS.h"
+#include "task.h"
+#include "queue.h"
 
-// ── Hardware Configuration ──────────────────────────────────────────────────
-#define LED_PIN     0
-#define LED_COUNT   8
+// ── LED 矩陣定義 ──────────────────────────────────────────────────────────────
+#define LED_PIN 0
+#define LED_COUNT 64
+#define MATRIX_W 8
+#define ZONE_EDGE_RATIO 0.35f
 
-// Zone Definitions (8 LEDs)
-// Edge: 0, 1, 6, 7  -> Dimmed (via ZONE_EDGE_RATIO)
-// Core: 2 ~ 5       -> Primary Brightness
-#define ZONE_EDGE_RATIO  0.35f   // Edge Brightness = Main Brightness * Ratio
+#define LED_ID_UART_ERROR 56
+#define LED_ID_UART_ERROR2 57
 
-// ── UART Configuration ──────────────────────────────────────────────────────
-#define UART_ID     uart0
-#define UART_TX_PIN 12
-#define UART_RX_PIN 13
-#define UART_BAUD   115200
+static inline int is_center(int idx)
+{
+    int row = idx / MATRIX_W;
+    int col = idx % MATRIX_W;
+    return (row >= 2 && row <= 5 && col >= 2 && col <= 5);
+}
 
-// ── System Finite State Machine (FSM) ───────────────────────────────────────
-typedef enum {
-    STATE_ACTIVE,   // User present, normal operation
-    STATE_IDLE,     // Short-term inactivity, power-saving mode
-    STATE_SLEEP,    // Long-term inactivity, LEDs OFF
-    STATE_ERROR     // Hardware fault, red alert flashing
+static inline int is_diag(int idx)
+{
+    return (idx == LED_ID_UART_ERROR || idx == LED_ID_UART_ERROR2);
+}
+
+// ── BH1750 ───────────────────────────────────────────────────────────────────
+#define I2C_PORT i2c0
+#define I2C_SDA 4
+#define I2C_SCL 5
+#define BH1750_ADDR 0x23
+#define BH1750_POWER_ON 0x01
+#define BH1750_CONT_H_MODE 0x10
+
+void bh1750_init(void)
+{
+    i2c_init(I2C_PORT, 400000);
+    gpio_set_function(I2C_SDA, GPIO_FUNC_I2C);
+    gpio_set_function(I2C_SCL, GPIO_FUNC_I2C);
+    gpio_pull_up(I2C_SDA);
+    gpio_pull_up(I2C_SCL);
+    uint8_t cmd = BH1750_POWER_ON;
+    i2c_write_blocking(I2C_PORT, BH1750_ADDR, &cmd, 1, false);
+    sleep_ms(10);
+    cmd = BH1750_CONT_H_MODE;
+    i2c_write_blocking(I2C_PORT, BH1750_ADDR, &cmd, 1, false);
+    sleep_ms(180);
+}
+
+float bh1750_read_lux(void)
+{
+    uint8_t buf[2];
+    int ret = i2c_read_timeout_us(I2C_PORT, BH1750_ADDR, buf, 2, false, 25000);
+    if (ret != 2)
+        return -1.0f;
+    uint16_t raw = ((uint16_t)buf[0] << 8) | buf[1];
+    return raw / 1.2f;
+}
+
+// ── 系統狀態 ──────────────────────────────────────────────────────────────────
+#define UART_TIMEOUT_MS 3000
+
+typedef enum
+{
+    STATE_ACTIVE,
+    STATE_IDLE,
+    STATE_SLEEP,
+    STATE_ERROR
 } SystemState;
+typedef enum
+{
+    AUTO_MODE,
+    MANUAL_FIXED,
+} SystemMode;
+typedef enum
+{
+    WHITE,
+    IVORY,
+    WARM
+} ColorType;
 
-SystemState system_state = STATE_ACTIVE;
+static volatile SystemState current_state = STATE_ACTIVE;
+static volatile SystemMode current_mode = AUTO_MODE;
+static volatile ColorType current_color = IVORY;
+static volatile float manual_brightness = 0.6f;
+static volatile uint8_t manual_rgb[3] = {255, 255, 255};
+static volatile int error_flag = 0;
+static volatile bool uart_disconnected = false;
 
-// Inactivity Counter (Simulated; to be integrated with PIR/Pressure sensors)
-static int idle_counter  = 0;
-#define IDLE_THRESHOLD   200    // Approx. 200 * 10ms = 2s -> IDLE
-#define SLEEP_THRESHOLD  600    // Approx. 600 * 10ms = 6s -> SLEEP
-
-int error_flag = 0; // Triggered via UART or hardware fault
-
-// ── Mode & Color Definitions ────────────────────────────────────────────────
-typedef enum { AUTO_MODE, MANUAL_FIXED, MANUAL_GRADIENT } SystemMode;
-typedef enum { WHITE, IVORY, WARM } ColorType;
-
-SystemMode current_mode      = AUTO_MODE;
-ColorType  current_color     = IVORY;
-float      manual_brightness = 0.6f;
-
-uint8_t color_presets[3][3] = {
-    {255, 255, 255},  // WHITE
-    {255, 230, 150},  // IVORY
-    {255, 150,  50},  // WARM
+static uint8_t color_presets[3][3] = {
+    {255, 255, 255},
+    {255, 160, 80},
+    {255, 150, 50},
 };
 
-// ── Smooth Fade Logic ───────────────────────────────────────────────────────
-static float current_brightness = 0.0f; // Current real-time brightness
+static const char *state_name[] = {"ACTIVE", "IDLE", "SLEEP", "ERROR"};
 
-/**
- * Approaches target brightness smoothly by a fixed step
- */
-void smooth_fade(float target, float step) {
+void vApplicationStackOverflowHook(TaskHandle_t xTask, char *pcTaskName)
+{
+    (void)xTask;
+    (void)pcTaskName;
+    taskDISABLE_INTERRUPTS();
+    while (1)
+    {
+        tight_loop_contents();
+    }
+}
+
+void vApplicationMallocFailedHook(void)
+{
+    taskDISABLE_INTERRUPTS();
+    while (1)
+    {
+        tight_loop_contents();
+    }
+}
+
+// ── PIO / LED ─────────────────────────────────────────────────────────────────
+static float current_brightness = 0.0f;
+
+static inline void put_pixel(uint32_t pixel_grb)
+{
+    pio_sm_put_blocking(pio0, 0, pixel_grb << 8u);
+}
+
+static inline uint32_t urgb_u32(uint8_t r, uint8_t g, uint8_t b, float bright)
+{
+    if (bright < 0.0f)
+        bright = 0.0f;
+    if (bright > 1.0f)
+        bright = 1.0f;
+    return ((uint32_t)((uint8_t)(g * bright)) << 16) | ((uint32_t)((uint8_t)(r * bright)) << 8) | (uint32_t)((uint8_t)(b * bright));
+}
+
+void smooth_fade(float target, float step)
+{
     if (current_brightness < target - step)
         current_brightness += step;
     else if (current_brightness > target + step)
@@ -70,248 +151,305 @@ void smooth_fade(float target, float step) {
         current_brightness = target;
 }
 
-// ── PIO / WS2812 Output ─────────────────────────────────────────────────────
-static inline void put_pixel(uint32_t pixel_grb) {
-    pio_sm_put_blocking(pio0, 0, pixel_grb << 8u);
-}
-
-static inline uint32_t urgb_u32(uint8_t r, uint8_t g, uint8_t b, float bright) {
-    if (bright < 0.0f) bright = 0.0f;
-    if (bright > 1.0f) bright = 1.0f;
-    return ((uint32_t)((uint8_t)(g * bright)) << 16)
-         | ((uint32_t)((uint8_t)(r * bright)) <<  8)
-         |  (uint32_t)((uint8_t)(b * bright));
-}
-
-// ── Zoned LED Control ───────────────────────────────────────────────────────
-void set_zone_leds(uint8_t r, uint8_t g, uint8_t b, float main_bright) {
+void set_zone_leds_with_diag(uint8_t r, uint8_t g, uint8_t b,
+                             float main_bright, bool diag_on)
+{
     float edge_bright = main_bright * ZONE_EDGE_RATIO;
-    for (int i = 0; i < LED_COUNT; i++) {
-        int is_edge = (i == 0 || i == 1 || i == 6 || i == 7);
-        float b_val = is_edge ? edge_bright : main_bright;
-        put_pixel(urgb_u32(r, g, b, b_val));
+    for (int i = 0; i < LED_COUNT; i++)
+    {
+        if (uart_disconnected && diag_on && is_diag(i))
+            put_pixel(urgb_u32(255, 0, 0, 0.7f));
+        else
+        {
+            float bright = is_center(i) ? main_bright : edge_bright;
+            put_pixel(urgb_u32(r, g, b, bright));
+        }
     }
 }
 
-void set_all_leds(uint8_t r, uint8_t g, uint8_t b, float bright) {
-    uint32_t color = urgb_u32(r, g, b, bright);
-    for (int i = 0; i < LED_COUNT; i++) put_pixel(color);
+void set_all_leds_with_diag(uint8_t r, uint8_t g, uint8_t b,
+                            float bright, bool diag_on)
+{
+    for (int i = 0; i < LED_COUNT; i++)
+    {
+        if (uart_disconnected && diag_on && is_diag(i))
+            put_pixel(urgb_u32(255, 0, 0, 0.7f));
+        else
+            put_pixel(urgb_u32(r, g, b, bright));
+    }
 }
 
-// ── Error Alert Logic ───────────────────────────────────────────────────────
 static int error_toggle = 0;
-
-void error_flash() {
+void error_flash(bool diag_on)
+{
     error_toggle = !error_toggle;
-    if (error_toggle)
-        set_all_leds(255, 0, 0, 0.6f);   // Flash Red
+    set_all_leds_with_diag(
+        error_toggle ? 255 : 0, 0, 0,
+        error_toggle ? 0.6f : 0.0f,
+        diag_on);
+}
+
+float brightness_from_lux(float lux)
+{
+    if (lux > 600.0f)
+        return 0.1f;
+    else if (lux > 200.0f)
+        return 0.35f;
     else
-        set_all_leds(0, 0, 0, 0.0f);      // Off
+        return 0.95f;
 }
 
-// ── Simulated Sensor Input ──────────────────────────────────────────────────
-float get_simulated_lux() {
-    static float lux = 400.0f;
-    static int   dir = 1;
-    lux += 2.0f * dir;
-    if (lux >= 800.0f || lux <= 50.0f) dir *= -1;
-    return lux;
-}
-
-float brightness_from_lux(float lux) {
-    if      (lux > 600.0f) return 0.3f;
-    else if (lux > 300.0f) return 0.6f;
-    else                   return 0.9f;
-}
-
-// ── FSM Update Logic ────────────────────────────────────────────────────────
-void update_state(float lux) {
-    if (error_flag) {
-        system_state = STATE_ERROR;
-        idle_counter = 0;
-        return;
-    }
-
-    // Using low lux as a proxy for 'no user presence'
-    if (lux < 80.0f) {
-        idle_counter++;
-    } else {
-        idle_counter = 0;
-    }
-
-    if      (idle_counter > SLEEP_THRESHOLD) system_state = STATE_SLEEP;
-    else if (idle_counter > IDLE_THRESHOLD)  system_state = STATE_IDLE;
-    else                                     system_state = STATE_ACTIVE;
-}
-
-// ── Non-blocking UART Reader ────────────────────────────────────────────────
+// ── USB CDC 讀一行（非阻塞）──────────────────────────────────────────────────
 static char uart_buf[64];
-static int  uart_pos = 0;
+static int uart_pos = 0;
 
-int uart_read_line(void) {
-    while (uart_is_readable(UART_ID)) {
-        char c = uart_getc(UART_ID);
-        if (c == '\r') continue;
-        if (c == '\n') {
+int uart_read_line(void)
+{
+    int c;
+    while (uart_is_readable(uart1))
+    {
+        c = uart_getc(uart1);
+        if (c == '\r')
+            continue;
+        if (c == '\n')
+        {
             uart_buf[uart_pos] = '\0';
             uart_pos = 0;
             return 1;
         }
         if (uart_pos < (int)sizeof(uart_buf) - 1)
-            uart_buf[uart_pos++] = c;
+            uart_buf[uart_pos++] = (char)c;
     }
     return 0;
 }
 
-// ── Command Parser (Interface with RPi4) ────────────────────────────────────
-void parse_command(char *cmd) {
-    if (strncmp(cmd, "LED:", 4) == 0) {
-        int r, g, b, bright_pct;
-        if (sscanf(cmd + 4, "R%dG%dB%dB%d", &r, &g, &b, &bright_pct) == 4) {
-            color_presets[current_color][0] = (uint8_t)r;
-            color_presets[current_color][1] = (uint8_t)g;
-            color_presets[current_color][2] = (uint8_t)b;
-            manual_brightness = bright_pct / 100.0f;
-            current_mode = MANUAL_FIXED;
-            uart_puts(UART_ID, "[LC] LED command received. Switching to Manual-Fixed mode.\n");
+void parse_command(char *cmd)
+{
+    if (strncmp(cmd, "STATE:", 6) == 0)
+    {
+        char *s = cmd + 6;
+        if (strcmp(s, "ACTIVE") == 0)
+        {
+            current_state = STATE_ACTIVE;
+            error_flag = 0;
+        }
+        else if (strcmp(s, "IDLE") == 0)
+        {
+            current_state = STATE_IDLE;
+            error_flag = 0;
+        }
+        else if (strcmp(s, "SLEEP") == 0)
+        {
+            current_state = STATE_SLEEP;
+            error_flag = 0;
+        }
+        else if (strcmp(s, "ERROR") == 0)
+        {
+            current_state = STATE_ERROR;
+            error_flag = 1;
         }
     }
-    else if (strncmp(cmd, "MODE:", 5) == 0) {
-        int mode = atoi(cmd + 5);
-        if (mode >= 0 && mode <= 2) {
-            current_mode = (SystemMode)mode;
-            const char *names[] = {"AUTO", "MANUAL_FIXED", "MANUAL_GRADIENT"};
-            char msg[64];
-            snprintf(msg, sizeof(msg), "[MODE] Current Mode: %s\n", names[mode]);
-            uart_puts(UART_ID, msg);
+    else if (strncmp(cmd, "MODE:", 5) == 0)
+    {
+        int m = atoi(cmd + 5);
+        if (m >= 0 && m <= 1)
+            current_mode = (SystemMode)m;
+    }
+    else if (strncmp(cmd, "COLOR:", 6) == 0)
+    {
+        int c = atoi(cmd + 6);
+        if (c >= 0 && c <= 2)
+            current_color = (ColorType)c;
+    }
+    else if (strncmp(cmd, "LED:", 4) == 0)
+    {
+        if (current_mode != MANUAL_FIXED)
+            return;
+        int r, g, b, pct;
+        if (sscanf(cmd + 4, "R%dG%dB%dL%d", &r, &g, &b, &pct) == 4)
+        {
+            manual_rgb[0] = (uint8_t)r;
+            manual_rgb[1] = (uint8_t)g;
+            manual_rgb[2] = (uint8_t)b;
+            manual_brightness = pct / 100.0f;
         }
     }
-    else if (strncmp(cmd, "COLOR:", 6) == 0) {
-        int color = atoi(cmd + 6);
-        if (color >= 0 && color <= 2) {
-            current_color = (ColorType)color;
-            const char *names[] = {"WHITE", "IVORY", "WARM"};
-            char msg[64];
-            snprintf(msg, sizeof(msg), "[COLOR] Current Color: %s\n", names[color]);
-            uart_puts(UART_ID, msg);
-        }
-    }
-    else if (strncmp(cmd, "ERROR:", 6) == 0) {
+    else if (strncmp(cmd, "ERROR:", 6) == 0)
+    {
         error_flag = atoi(cmd + 6);
-        char msg[48];
-        snprintf(msg, sizeof(msg), "[SYS] error_flag set to %d\n", error_flag);
-        uart_puts(UART_ID, msg);
+        if (error_flag)
+            current_state = STATE_ERROR;
     }
 }
 
-static const char *state_name[] = { "ACTIVE", "IDLE", "SLEEP", "ERROR" };
+// ── Queue handle ──────────────────────────────────────────────────────────────
+static QueueHandle_t lux_queue;
+static QueueHandle_t cmd_queue;
 
-// ── Main Loop ───────────────────────────────────────────────────────────────
-int main() {
-    stdio_init_all();
-    sleep_ms(2000);
-
-    if (cyw43_arch_init()) {
-        uart_puts(UART_ID, "cyw43 init failed\n");
-        return -1;
+// ── Task 1：每 500ms 讀 BH1750 ────────────────────────────────────────────────
+void lux_task(void *pvParameters)
+{
+    float lux = 0.0f;
+    while (1)
+    {
+        float new_lux = bh1750_read_lux();
+        if (new_lux >= 0.0f)
+            lux = new_lux;
+        xQueueOverwrite(lux_queue, &lux);
+        vTaskDelay(pdMS_TO_TICKS(500));
     }
+}
 
-    uart_init(UART_ID, UART_BAUD);
-    gpio_set_function(UART_TX_PIN, GPIO_FUNC_UART);
-    gpio_set_function(UART_RX_PIN, GPIO_FUNC_UART);
+
+void uart_rx_task(void *pvParameters)
+{
+    char cmd[64];
+    while (1)
+    {
+        if (uart_read_line())
+        {
+            strncpy(cmd, uart_buf, sizeof(cmd));
+            xQueueSend(cmd_queue, cmd, 0);
+        }
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+// ── Task 3：燈光控制主邏輯 ───────────────────────────────────────────────────
+void lighting_task(void *pvParameters)
+{
+    float lux = 0.0f;
+    char cmd[64];
+    TickType_t last_uart_rx = xTaskGetTickCount();
+    TickType_t last_error_blink = 0;
+    TickType_t last_diag_blink = 0;
+    bool diag_on = false;
+
+    while (1)
+    {
+        TickType_t now = xTaskGetTickCount();
+
+        // 有新指令就處理，並更新斷訊計時
+        if (xQueueReceive(cmd_queue, cmd, 0) == pdTRUE)
+        {
+            parse_command(cmd);
+            last_uart_rx = now;
+        }
+
+        // 取最新 lux（不等待）
+        xQueuePeek(lux_queue, &lux, 0);
+
+        // 斷訊偵測
+        // 手動模式不觸發斷訊診斷燈
+        if (current_mode == MANUAL_FIXED)
+        {
+            uart_disconnected = false;
+        }
+        else
+        {
+            uart_disconnected = ((now - last_uart_rx) > pdMS_TO_TICKS(UART_TIMEOUT_MS));
+        }
+
+        // 診斷燈 toggle
+        if (uart_disconnected)
+        {
+            if ((now - last_diag_blink) >= pdMS_TO_TICKS(500))
+            {
+                diag_on = !diag_on;
+                last_diag_blink = now;
+            }
+        }
+        else
+        {
+            diag_on = false;
+            last_diag_blink = now;
+        }
+
+        // 燈光控制
+        if (current_state == STATE_ERROR)
+        {
+            if ((now - last_error_blink) >= pdMS_TO_TICKS(200))
+            {
+                error_flash(diag_on);
+                last_error_blink = now;
+            }
+        }
+        else
+        {
+            float target = 0.0f;
+
+            if (current_state == STATE_SLEEP)
+            {
+                target = 0.0f;
+            }
+            else if (current_state == STATE_IDLE)
+            {
+                if (current_mode == MANUAL_FIXED)
+                    target = manual_brightness;
+                else
+                    target = brightness_from_lux(lux) * 0.3f;
+            }
+            else
+            { // STATE_ACTIVE
+                if (current_mode == AUTO_MODE)
+                    target = brightness_from_lux(lux);
+                else if (current_mode == MANUAL_FIXED)
+                    target = manual_brightness;
+            }
+
+            smooth_fade(target, 0.005f);
+            uint8_t *c = (current_mode == MANUAL_FIXED)
+                             ? (uint8_t *)manual_rgb
+                             : color_presets[current_color];
+            set_zone_leds_with_diag(c[0], c[1], c[2], current_brightness, diag_on);
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(10));
+    }
+}
+
+// ── Task 4：每秒回報 LUX 和 STATE ─────────────────────────────────────────────
+void heartbeat_task(void *pvParameters)
+{
+    float lux = 0.0f;
+    char buf[64];
+    while (1)
+    {
+        xQueuePeek(lux_queue, &lux, 0);
+        snprintf(buf, sizeof(buf), "LUX:%.1f\n", lux);
+        uart_puts(uart1, buf);
+        snprintf(buf, sizeof(buf), "STATE:%s\n", state_name[current_state]);
+        uart_puts(uart1, buf);
+        vTaskDelay(pdMS_TO_TICKS(1000));
+    }
+}
+
+// ── main ─────────────────────────────────────────────────────────────────────
+int main(void)
+{
+
+    uart_init(uart1, 115200);
+    gpio_set_function(8, GPIO_FUNC_UART); // TX
+    gpio_set_function(9, GPIO_FUNC_UART); // RX
+
+    if (cyw43_arch_init())
+        return -1;
+
+    bh1750_init();
 
     uint offset = pio_add_program(pio0, &ws2812_program);
     ws2812_program_init(pio0, 0, offset, LED_PIN, 800000, false);
 
-    uart_puts(UART_ID, "=== Initialization Complete. System Booting... ===\n");
-    uart_puts(UART_ID, "LEDs: 8 | Zones: Core(2-5), Edge(0,1,6,7)\n");
-    uart_puts(UART_ID, "Features: FSM + Zoning + Fade + Error Alerts\n\n");
+    lux_queue = xQueueCreate(1, sizeof(float));
+    cmd_queue = xQueueCreate(8, sizeof(char[64]));
 
-    float    gradient_step    = 0.0f;
-    uint32_t last_send        = 0;
-    uint32_t last_error_blink = 0;
+    xTaskCreate(lux_task, "lux", 512, NULL, 1, NULL);
+    xTaskCreate(uart_rx_task, "uart_rx", 512, NULL, 3, NULL);
+    xTaskCreate(lighting_task, "lighting", 1024, NULL, 2, NULL);
+    xTaskCreate(heartbeat_task, "heartbeat", 512, NULL, 1, NULL);
 
-    while (1) {
-        uint32_t now = to_ms_since_boot(get_absolute_time());
+    vTaskStartScheduler();
 
-        // ── Sensor Reading ──
-        float lux = get_simulated_lux();
-
-        // ── FSM Update ──
-        update_state(lux);
-
-        // ── RPi4 Command Intake ──
-        if (uart_read_line()) {
-            parse_command(uart_buf);
-        }
-
-        // ── Telemetry Output (Every 1s) ──
-        if (now - last_send >= 1000) {
-            char msg[160];
-
-            if (system_state == STATE_ERROR) {
-                snprintf(msg, sizeof(msg), "[ERROR] System Fault | flag=%d | Red alert active\n", error_flag);
-            } else if (system_state == STATE_SLEEP) {
-                snprintf(msg, sizeof(msg), "[SLEEP] Inactive | lux: %.1f | LEDs OFF\n", lux);
-            } else if (system_state == STATE_IDLE) {
-                snprintf(msg, sizeof(msg), "[IDLE] Short Inactivity | lux: %.1f | Power Saving (20%%)\n", lux);
-            } else {
-                if (current_mode == AUTO_MODE) {
-                    int pct = (lux > 600.0f) ? 30 : (lux > 300.0f ? 60 : 90);
-                    snprintf(msg, sizeof(msg), "[ACTIVE/AUTO] Lux: %.1f | Core: %d%% | Edge: %.0f%%\n",
-                             lux, pct, pct * ZONE_EDGE_RATIO);
-                } else if (current_mode == MANUAL_FIXED) {
-                    snprintf(msg, sizeof(msg), "[ACTIVE/MANUAL] Color: %d | Core: %.0f%% | Edge: %.0f%%\n",
-                             current_color, manual_brightness * 100.0f, manual_brightness * ZONE_EDGE_RATIO * 100.0f);
-                } else {
-                    float b = 0.35f + 0.25f * sinf(gradient_step);
-                    snprintf(msg, sizeof(msg), "[ACTIVE/GRADIENT] Core: %.0f%% | Edge: %.0f%%\n",
-                             b * 100.0f, b * ZONE_EDGE_RATIO * 100.0f);
-                }
-            }
-            uart_puts(UART_ID, msg);
-
-            // Reporting LUX to Kernel Module & STATE to RPi4
-            char telemetry[64];
-            snprintf(telemetry, sizeof(telemetry), "LUX:%.1f\nSTATE:%s\n", lux, state_name[system_state]);
-            uart_puts(UART_ID, telemetry);
-
-            last_send = now;
-        }
-
-        // ── Lighting Control Logic ──
-        if (system_state == STATE_ERROR) {
-            if (now - last_error_blink >= 200) {
-                error_flash();
-                last_error_blink = now;
-            }
-        } else if (system_state == STATE_SLEEP) {
-            smooth_fade(0.0f, 0.005f);
-            uint8_t *c = color_presets[current_color];
-            set_zone_leds(c[0], c[1], c[2], current_brightness);
-        } else if (system_state == STATE_IDLE) {
-            smooth_fade(0.2f, 0.005f);
-            uint8_t *c = color_presets[current_color];
-            set_zone_leds(c[0], c[1], c[2], current_brightness);
-        } else {
-            float target;
-            uint8_t r, g, b;
-            if (current_mode == AUTO_MODE) {
-                target = brightness_from_lux(lux);
-                r = color_presets[IVORY][0]; g = color_presets[IVORY][1]; b = color_presets[IVORY][2];
-            } else if (current_mode == MANUAL_FIXED) {
-                target = manual_brightness;
-                r = color_presets[current_color][0]; g = color_presets[current_color][1]; b = color_presets[current_color][2];
-            } else {
-                gradient_step += 0.05f;
-                target = 0.35f + 0.25f * sinf(gradient_step);
-                r = color_presets[current_color][0]; g = color_presets[current_color][1]; b = color_presets[current_color][2];
-            }
-            smooth_fade(target, 0.005f);
-            set_zone_leds(r, g, b, current_brightness);
-        }
-
-        sleep_ms(10); // Faster polling for smoother fading
-    }
+    // 不會執行到這裡
     return 0;
 }
