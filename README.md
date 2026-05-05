@@ -99,7 +99,7 @@ smart-space-lighting-system/
 └── README.md
 ```
 
-- `firmware/pico/`: Pico W firmware with FreeRTOS tasks, BH1750 sensing, UART command parsing, and WS2812B LED control
+- `firmware/pico/`: Pico W firmware with FreeRTOS tasks, GY-302 sensing, UART command parsing, and WS2812B LED control
 - `linux/kernel-module/uart_hub_km/`: UART kernel module exposing `/dev/light_sensor` and `/dev/lighting`
 - `linux/kernel-module/presence_km/`: PIR presence detection kernel module exposing `/dev/presence`
 - `linux/daemon/`: user-space daemon for state decision, device monitoring, and MQTT publishing
@@ -111,7 +111,7 @@ smart-space-lighting-system/
 
 ### Auto Mode
 
-1. Pico W reads ambient light data from BH1750.
+1. Pico W reads ambient light data from GY-302.
 2. Pico W sends LUX data to Raspberry Pi 4 through UART.
 3. `uart_hub_km` receives UART data and exposes it through `/dev/light_sensor`.
 4. `lighting_daemon` reads:
@@ -184,7 +184,7 @@ The Pico W firmware is responsible for LED control and sensor handling.
 
 Main responsibilities:
 
-- Read ambient light data from BH1750
+- Read ambient light data from GY-302
 - Control WS2812B LED matrix using PIO
 - Parse UART commands from Raspberry Pi 4
 - Execute FreeRTOS tasks for:
@@ -423,7 +423,7 @@ Expected benefits:
 
 ```mermaid
 flowchart LR
-    BH1750[BH1750 光照感測器] --> PicoW[Pico W<br/>FreeRTOS 韌體]
+    GY-302[GY-302 光照感測器] --> PicoW[Pico W<br/>FreeRTOS 韌體]
     LED[WS2812B LED 燈板] <-->|PIO / NRZ 時序| PicoW
 
     PIR[HC-SR505 PIR 人體感測器] --> PresenceKM[Linux Kernel Module<br/>presence_km]
@@ -447,7 +447,7 @@ flowchart LR
 
 ### 自動模式
 
-1. Pico W 讀取 BH1750 的環境光資料。
+1. Pico W 讀取 GY-302 的環境光資料。
 2. Pico W 透過 UART 將 LUX 資料傳送至 Raspberry Pi 4。
 3. `uart_hub_km` 接收 UART 資料，並透過 `/dev/light_sensor` 提供給 user space。
 4. `lighting_daemon` 讀取：
