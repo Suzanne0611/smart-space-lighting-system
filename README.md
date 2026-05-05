@@ -154,7 +154,6 @@ echo "STATE:IDLE" | sudo tee /dev/lighting
 echo "STATE:SLEEP" | sudo tee /dev/lighting
 ```
 
----
 
 ### 6. Read sensor data
 
