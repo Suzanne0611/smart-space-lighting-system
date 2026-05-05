@@ -35,7 +35,7 @@ The initial version focused on building a minimal UART-based control pipeline, w
 - Node.js / Express
 - HTML / CSS / JavaScript
 - WS2812B LED Matrix
-- BH1750 Light Sensor
+- GY-302 Light Sensor
 - HC-SR505 PIR Sensor
 
 ---
@@ -44,7 +44,7 @@ The initial version focused on building a minimal UART-based control pipeline, w
 
 ```mermaid
 flowchart LR
-    BH1750[BH1750 Light Sensor] --> PicoW[Pico W<br/>FreeRTOS Firmware]
+    GY-302[GY-302 Light Sensor] --> PicoW[Pico W<br/>FreeRTOS Firmware]
     LED[WS2812B LED Matrix] <-->|PIO / NRZ Timing| PicoW
 
     PIR[HC-SR505 PIR Sensor] --> PresenceKM[Linux Kernel Module<br/>presence_km]
