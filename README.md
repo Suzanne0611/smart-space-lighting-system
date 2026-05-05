@@ -35,7 +35,7 @@ The initial version focused on building a minimal UART-based control pipeline, w
 - Node.js / Express
 - HTML / CSS / JavaScript
 - WS2812B LED Matrix
-- GY-302 Light Sensor
+- GY-302 Light Sensor Module (BH1750-based)
 - HC-SR505 PIR Sensor
 
 ---
@@ -465,7 +465,7 @@ flowchart LR
    - `smartspace/lighting/idle_counter`
 8. Web 控制面板顯示即時燈光與人體感測狀態。
 
----
+
 
 ### 手動模式
 
@@ -491,7 +491,6 @@ flowchart LR
 - user-space daemon 監控感測資料與控制狀態
 - 初步 ACTIVE / IDLE / SLEEP 狀態邏輯
 
----
 
 ### v2 — MQTT 與 Web 控制整合版本
 
