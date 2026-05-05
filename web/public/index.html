@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="icon" href="emo.jpg" type="image/jpg">
+<title>智慧燈光控制面板</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+background-color: var(--bg-color);
+    background-image: radial-gradient(at 0% 0%, hsla(210,100%,95%,1) 0, transparent 50%), 
+                      radial-gradient(at 100% 0%, hsla(200,100%,90%,1) 0, transparent 50%);
+    color: var(--text-main);
+    min-height: 100vh;
+    padding: 30px 15px;
+  }
+
+  h1 {
+    text-align: center;
+    margin-bottom: 24px;
+    font-size: 22px;
+    color: #0c479a;
+  }
+
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 16px;
+    max-width: 900px;
+    margin: 0 auto;
+  }
+
+  .card {
+    background: #c2e1ff;
+    border-radius: 12px;
+    padding: 20px;
+    border: 1px solid #a9cffe;
+  }
+
+  .card h2 {
+    font-size: 14px;
+    color: #1e4584;
+    margin-bottom: 14px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .btn-group {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  button {
+    padding: 10px 18px;
+    border: none;
+    border-radius: 8px;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: bold;
+    transition: opacity 0.15s, filter 0.15s;
+  }
+
+  button:hover:not(:disabled) { opacity: 0.85; }
+  button:active:not(:disabled) { opacity: 0.7; }
+
+  button:disabled {
+    filter: grayscale(80%) brightness(0.5);
+    cursor: not-allowed;
+    opacity: 0.5;
+  }
+
+  input[type=range]:disabled {
+    filter: grayscale(80%) brightness(0.5);
+    cursor: not-allowed;
+  }
+
+  .btn-white   { background: #ffffff; color: #333; }
+  .btn-ivory   { background: #ffe699; color: #333; }
+  .btn-warm    { background: #ff9650; color: #fff; }
+  .btn-auto    { background: #d8ac1a; color: #fff; }
+  .btn-fixed   { background: #3ec097; color: #fff; }
+  .btn-send    { background: #367db4; color: #fff; width: 100%; margin-top: 10px; }
+
+  .btn-selected {
+    outline: 3px solid #fff;
+    outline-offset: 2px;
+  }
+
+  .slider-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 8px;
+  }
+
+  .slider-row label {
+    width: 28px;
+    font-size: 13px;
+    color: #1c1919;
+  }
+
+  input[type=range] {
+    flex: 1;
+    accent-color: #674747;
+  }
+
+  .slider-row span {
+    width: 36px;
+    text-align: right;
+    font-size: 13px;
+    color: #533d3d;
+  }
+
+  .color-preview {
+    width: 100%;
+    height: 40px;
+    border-radius: 8px;
+    margin-bottom: 10px;
+    border: 1px solid #0f3460;
+  }
+
+  .lux-display {
+    font-size: 40px;
+    font-weight: bold;
+    text-align: center;
+    color: #ba7617;
+    margin: 10px 0;
+  }
+
+  .lux-label {
+    text-align: center;
+    font-size: 12px;
+    color: #634343;
+  }
+
+  .pir-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px;
+    margin: 8px 0;
+  }
+
+  .pir-dot {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    background: #444;
+    transition: background 0.3s;
+  }
+
+  .pir-dot.active { background: #4caf50; box-shadow: 0 0 8px #4caf50; }
+
+  .state-badge {
+    display: inline-block;
+    padding: 4px 14px;
+    border-radius: 20px;
+    font-size: 13px;
+    font-weight: bold;
+    background: #2d3b42;
+    color: #fff;
+    transition: background 0.3s;
+  }
+
+  .state-badge.ACTIVE { background: #4caf50; }
+  .state-badge.IDLE   { background: #ff9800; }
+  .state-badge.SLEEP  { background: #455a64; }
+  .state-badge.ERROR  { background: #f44336; }
+
+  .idle-bar-wrap {
+    background: #0f3460;
+    border-radius: 4px;
+    height: 6px;
+    margin-top: 10px;
+    overflow: hidden;
+  }
+
+  .idle-bar {
+    height: 100%;
+    background: #ff9800;
+    border-radius: 4px;
+    transition: width 0.8s linear;
+  }
+
+  .mode-hint {
+    font-size: 11px;
+    color: #634747;
+    margin-top: 8px;
+    text-align: center;
+  }
+
+  .status-bar {
+    margin-top: 16px;
+    padding: 8px 12px;
+    background: #3b5b82;
+    border-radius: 8px;
+    font-size: 12px;
+    color: #a0c4ff;
+    text-align: center;
+    min-height: 32px;
+  }
+</style>
+
+</head>
+<body>
+
+<h1>智慧燈光控制面板</h1>
+
+<div class="grid">
+
+  <!-- Mode selection -->
+  <div class="card">
+    <h2>燈光模式</h2>
+    <div class="btn-group">
+      <button id="btnAuto"  class="btn-auto  btn-selected" onclick="setMode(0)">自動（跟 lux）</button>
+      <button id="btnFixed" class="btn-fixed"              onclick="setMode(1)">手動固定</button>
+    </div>
+    <div class="mode-hint" id="modeHint">自動模式：顏色與亮度跟隨環境光照</div>
+  </div>
+
+  <!-- warm color choices -->
+  <div class="card">
+    <h2>預設顏色</h2>
+    <div class="btn-group">
+      <button id="btnWhite" class="btn-white" onclick="setColor(0)">純白</button>
+      <button id="btnIvory" class="btn-ivory" onclick="setColor(1)">米白</button>
+      <button id="btnWarm"  class="btn-warm"  onclick="setColor(2)">暖黃</button>
+    </div>
+  </div>
+
+  <!-- RGB slider -->
+  <div class="card">
+    <h2>自訂顏色</h2>
+    <div class="color-preview" id="colorPreview"></div>
+    <div class="slider-row">
+      <label>R</label>
+      <input type="range" id="rVal" min="0" max="255" value="255" oninput="updatePreview()">
+      <span id="rNum">255</span>
+    </div>
+    <div class="slider-row">
+      <label>G</label>
+      <input type="range" id="gVal" min="0" max="255" value="230" oninput="updatePreview()">
+      <span id="gNum">230</span>
+    </div>
+    <div class="slider-row">
+      <label>B</label>
+      <input type="range" id="bVal" min="0" max="255" value="150" oninput="updatePreview()">
+      <span id="bNum">150</span>
+    </div>
+    <div class="slider-row">
+      <label>亮</label>
+      <input type="range" id="brightVal" min="0" max="100" value="60" oninput="updatePreview()">
+      <span id="brightNum">60%</span>
+    </div>
+    <button id="btnSendLED" class="btn-send" onclick="sendLED()">送出</button>
+  </div>
+
+  <!-- LUX display -->
+  <div class="card">
+    <h2>環境光照</h2>
+    <div class="lux-display" id="luxValue">--</div>
+    <div class="lux-label">lux（每 2 秒更新）</div>
+  </div>
+
+  <!-- PIR / system status -->
+  <div class="card">
+    <h2>人體感測 / 系統狀態</h2>
+    <div class="pir-row">
+      <div class="pir-dot" id="pirDot"></div>
+      <span id="pirLabel" style="font-size:13px;color:#463b3b;">偵測中...</span>
+    </div>
+    <div style="text-align:center;margin:10px 0;">
+      <span class="state-badge" id="stateBadge">--</span>
+    </div>
+    <div class="idle-bar-wrap" id="idleBarWrap" style="display:none">
+      <div class="idle-bar" id="idleBar" style="width:0%"></div>
+    </div>
+    <div class="lux-label" id="idleLabel" style="margin-top:6px"></div>
+  </div>
+
+</div>
+
+<div class="status-bar" id="statusBar">就緒</div>
+
+<script>
+  let currentMode = 0;
+
+  function showStatus(msg, ok = true) {
+    const bar = document.getElementById('statusBar');
+    bar.textContent = msg;
+    bar.style.color = ok ? '#a0c4ff' : '#f44336';
+  }
+
+  async function post(url, body) {
+    try {
+      const res  = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      const data = await res.json();
+      showStatus(data.success ? `✓ ${data.command}` : `✗ 失敗`, data.success);
+    } catch (err) {
+      showStatus(`連線失敗：${err.message}`, false);
+    }
+  }
+
+  function setMode(mode) {
+    currentMode = mode;
+    post('/api/mode', { mode });
+    updateModeUI();
+  }
+
+  function setColor(color) {
+    post('/api/color', { color });
+  }
+
+  function sendLED() {
+    if (currentMode === 0) return;
+    const r          = parseInt(document.getElementById('rVal').value);
+    const g          = parseInt(document.getElementById('gVal').value);
+    const b          = parseInt(document.getElementById('bVal').value);
+    const brightness = parseInt(document.getElementById('brightVal').value);
+    post('/api/led', { r, g, b, brightness });
+  }
+
+  function updateModeUI() {
+    const isAuto = currentMode === 0;
+
+    document.getElementById('btnAuto').classList.toggle('btn-selected',  currentMode === 0);
+    document.getElementById('btnFixed').classList.toggle('btn-selected', currentMode === 1);
+
+    // buttons for preset colors: auto mode locks, manual mode enables
+    ['btnWhite', 'btnIvory', 'btnWarm'].forEach(id => {
+      document.getElementById(id).disabled = !isAuto;
+    });
+
+    // RGB slider: manual mode available, auto mode locked
+    ['rVal', 'gVal', 'bVal', 'brightVal'].forEach(id => {
+      document.getElementById(id).disabled = isAuto;
+    });
+    document.getElementById('btnSendLED').disabled = isAuto;
+
+    const hints = [
+      '自動模式：顏色與亮度跟隨環境光照',
+      '手動固定：可自訂顏色與亮度',
+    ];
+    document.getElementById('modeHint').textContent = hints[currentMode] || '';
+  }
+
+  function updatePreview() {
+    const r      = document.getElementById('rVal').value;
+    const g      = document.getElementById('gVal').value;
+    const b      = document.getElementById('bVal').value;
+    const bright = document.getElementById('brightVal').value;
+
+    document.getElementById('rNum').textContent      = r;
+    document.getElementById('gNum').textContent      = g;
+    document.getElementById('bNum').textContent      = b;
+    document.getElementById('brightNum').textContent = bright + '%';
+
+    const factor = bright / 100;
+    document.getElementById('colorPreview').style.background =
+      `rgb(${Math.round(r*factor)},${Math.round(g*factor)},${Math.round(b*factor)})`;
+  }
+
+  async function fetchStatus() {
+    try {
+      const res  = await fetch('/api/status');
+      const data = await res.json();
+
+      // lux
+      document.getElementById('luxValue').textContent =
+        data.lux !== null ? data.lux.toFixed(1) : '--';
+
+      // PIR
+      const dot      = document.getElementById('pirDot');
+      const pirLabel = document.getElementById('pirLabel');
+      if (data.pir === 1) {
+        dot.classList.add('active');
+        pirLabel.textContent = '偵測到人';
+        pirLabel.style.color = '#4caf50';
+      } else {
+        dot.classList.remove('active');
+        pirLabel.textContent = '未偵測到人';
+        pirLabel.style.color = '#463b3b';
+      }
+
+      // state badge
+      const badge     = document.getElementById('stateBadge');
+      badge.textContent = data.state || '--';
+      badge.className   = 'state-badge ' + (data.state || '');
+
+      // idle counter progress bar
+      const wrap  = document.getElementById('idleBarWrap');
+      const bar   = document.getElementById('idleBar');
+      const label = document.getElementById('idleLabel');
+      if (!data.manualOverride && data.pir === 0 && data.idleCounter > 0) {
+        wrap.style.display = '';
+        const pct = Math.min(data.idleCounter / 20 * 100, 100);
+        bar.style.width    = pct + '%';
+        label.textContent  = `無人 ${data.idleCounter}s（${data.idleCounter > 20 ? 'SLEEP' : data.idleCounter > 5 ? 'IDLE' : '即將 IDLE'}）`;
+      } else {
+        wrap.style.display = 'none';
+        label.textContent  = data.manualOverride ? '手動模式，presence 暫停控制' : '';
+      }
+    } catch {}
+  }
+
+  // init
+  updatePreview();
+  updateModeUI();
+  fetchStatus();
+  setInterval(fetchStatus, 2000);
+</script>
+
+</body>
+</html>
