@@ -1,17 +1,36 @@
-# build
-build/
-
-# vscode
+# VSCode
 .vscode/
+**/.vscode/
 
-# linux kernel build
+# Build outputs
+build/
+**/build/
+
+# Pico / CMake
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+*.elf
+*.uf2
+*.bin
+*.map
+*.hex
+*.dis
 *.o
+
+# Linux kernel module build
 *.ko
 *.mod
 *.mod.c
 *.cmd
 Module.symvers
 modules.order
+.tmp_versions/
 
-# misc
+# Node.js
+node_modules/
+.env
+
+# OS
 .DS_Store
+Thumbs.db
