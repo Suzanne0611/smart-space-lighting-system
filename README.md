@@ -44,10 +44,10 @@ The initial version focused on building a minimal UART-based control pipeline, w
 
 ```mermaid
 flowchart LR
-    GY-302[GY-302 Light Sensor] --> PicoW[Pico W<br/>FreeRTOS Firmware]
+    GY302[GY-302 Light Sensor] -->|I2C| PicoW[Pico W<br/>FreeRTOS Firmware]
     LED[WS2812B LED Matrix] <-->|PIO / NRZ Timing| PicoW
 
-    PIR[HC-SR505 PIR Sensor] --> PresenceKM[Linux Kernel Module<br/>presence_km]
+    PIR[HC-SR505 PIR Sensor] -->|GPIO| PresenceKM[Linux Kernel Module<br/>presence_km]
     PresenceKM -->|/dev/presence| Daemon[lighting_daemon]
 
     PicoW <-->|UART| UartHub[Linux Kernel Module<br/>uart_hub_km]
@@ -423,10 +423,10 @@ Expected benefits:
 
 ```mermaid
 flowchart LR
-    GY-302[GY-302 光照感測器] --> PicoW[Pico W<br/>FreeRTOS 韌體]
+    GY302[GY-302 光照感測器] -->|I2C| PicoW[Pico W<br/>FreeRTOS 韌體]
     LED[WS2812B LED 燈板] <-->|PIO / NRZ 時序| PicoW
 
-    PIR[HC-SR505 PIR 人體感測器] --> PresenceKM[Linux Kernel Module<br/>presence_km]
+    PIR[HC-SR505 PIR 人體感測器] -->|GPIO| PresenceKM[Linux Kernel Module<br/>presence_km]
     PresenceKM -->|/dev/presence| Daemon[lighting_daemon]
 
     PicoW <-->|UART| UartHub[Linux Kernel Module<br/>uart_hub_km]
