@@ -6,7 +6,16 @@ This project integrates Raspberry Pi 4, Pico W, Linux kernel modules, FreeRTOS f
 The system was developed in stages.  
 The initial version focused on building a minimal UART-based control pipeline, while the second version extends the system with FreeRTOS task scheduling, MQTT-based status publishing, and a web-based control panel.
 
----
+## Demo
+
+### v2 — MQTT Dashboard Integration
+
+Integrated smart lighting subsystem with FreeRTOS firmware, MQTT status publishing, web-based control, and real-time system monitoring.
+
+![v2 system overview](docs/images/v1-hardware-prototype.jpg)
+
+🎥 Demo Video: [Watch v2 Demo](https://youtu.be/-QJoQXVqg9Y?si=haEGasTD7JBurA3a)
+
 
 ## Features
 
@@ -20,7 +29,7 @@ The initial version focused on building a minimal UART-based control pipeline, w
 - ACTIVE / IDLE / SLEEP state control logic
 - FreeRTOS-based Pico W firmware for concurrent sensing, command handling, and LED control
 
----
+
 
 ## Tech Stack
 
@@ -38,7 +47,7 @@ The initial version focused on building a minimal UART-based control pipeline, w
 - GY-302 Light Sensor Module (BH1750-based)
 - HC-SR505 PIR Sensor
 
----
+
 
 ## System Architecture
 
@@ -62,7 +71,7 @@ flowchart LR
     Server -->|write command| UartHub
 ```
 
----
+
 
 ## Project Structure
 
@@ -105,7 +114,7 @@ smart-space-lighting-system/
 - `linux/daemon/`: user-space daemon for state decision, device monitoring, and MQTT publishing
 - `web/`: Node.js / Express web dashboard for manual control and real-time status display
 
----
+
 
 ## Data Flow
 
@@ -129,7 +138,7 @@ smart-space-lighting-system/
    - `smartspace/lighting/idle_counter`
 8. The web dashboard displays real-time lighting and presence status.
 
----
+
 
 ### Manual Mode
 
@@ -141,7 +150,7 @@ smart-space-lighting-system/
 6. `uart_hub_km` transmits commands to Pico W through UART.
 7. Pico W updates the WS2812B LED matrix.
 
----
+
 
 ## System Evolution
 
@@ -174,7 +183,7 @@ The second version extends the system with FreeRTOS, MQTT, and a web-based contr
 - Added real-time status display for LUX, PIR, state, and idle counter
 - Kept UART as the device-level communication path between Raspberry Pi 4 and Pico W
 
----
+
 
 ## Key Components
 
@@ -193,7 +202,7 @@ Main responsibilities:
   - Lighting control
   - Heartbeat/status reporting
 
----
+
 
 ### Linux Kernel Module: `uart_hub_km`
 
@@ -211,7 +220,7 @@ Main features:
 - Blocking read with wait queue
 - Device node abstraction for user-space programs
 
----
+
 
 ### Linux Kernel Module: `presence_km`
 
@@ -228,7 +237,7 @@ Main features:
 - `poll()` support for event-driven design
 - Real-time presence status access from user space
 
----
+
 
 ### User-space Daemon: `lighting_daemon`
 
@@ -244,7 +253,7 @@ Main responsibilities:
 - Publish system status through MQTT
 - Subscribe to manual override topic from the web server
 
----
+
 
 ### Web Control Panel
 
@@ -260,7 +269,7 @@ Main features:
 - ACTIVE / IDLE / SLEEP state display
 - Idle counter progress display
 
----
+
 
 ## MQTT Topics
 
@@ -272,7 +281,7 @@ Main features:
 | `smartspace/lighting/idle_counter` | daemon → broker | Accumulated no-presence time |
 | `smartspace/lighting/override` | server → broker → daemon | Manual override mode |
 
----
+
 
 ## How to Run (v2)
 
@@ -355,7 +364,7 @@ Open the web dashboard:
 http://localhost:3000
 ```
 
----
+
 
 ## Notes
 
@@ -365,7 +374,7 @@ http://localhost:3000
 - `/dev/presence` is provided by `presence_km`.
 - The pure MQTT device-control version is planned as a later version.
 
----
+
 
 ## Future Work
 
@@ -403,7 +412,7 @@ Expected benefits:
 專題採分階段開發。  
 第一版先建立 UART 與 Linux 裝置檔的最小控制流程，第二版則加入 FreeRTOS、MQTT 狀態發布與 Web 控制面板。
 
----
+
 
 ## 功能
 
@@ -417,7 +426,7 @@ Expected benefits:
 - ACTIVE / IDLE / SLEEP 狀態控制邏輯
 - Pico W 使用 FreeRTOS 處理感測、指令接收與燈光控制
 
----
+
 
 ## 系統架構
 
@@ -441,7 +450,7 @@ flowchart LR
     Server -->|寫入指令| UartHub
 ```
 
----
+
 
 ## 資料流程
 
@@ -477,7 +486,7 @@ flowchart LR
 6. `uart_hub_km` 透過 UART 將指令送至 Pico W。
 7. Pico W 更新 WS2812B LED 燈板。
 
----
+
 
 ## 系統演進
 
@@ -503,7 +512,7 @@ flowchart LR
 - 顯示 LUX、PIR、系統狀態與累積無人時間
 - 此版本仍保留 UART 作為 Raspberry Pi 4 與 Pico W 之間的裝置層通訊方式
 
----
+
 
 ## 未來展望
 
