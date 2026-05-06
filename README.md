@@ -4,22 +4,6 @@ This project is a smart lighting subsystem for a shared smart space prototype.
 The initial version focuses on building a minimal control pipeline between Raspberry Pi 4 and Pico W through UART and Linux device files.
 
 
-## Demo Videos
-
-### v1 — UART Minimal Control Prototype
-
-- UART-based lighting control
-
-- Linux device file interaction
-
-- Web-based manual lighting control
-
-- Initial ACTIVE / IDLE / SLEEP state logic
-
-🎥 Demo Video: [Watch v1 Demo](https://youtu.be/-QJoQXVqg9Y?si=ZidoijGjH26PXRL0)
-
----
-
 ## Preview
 
 ### v1 Hardware Prototype
